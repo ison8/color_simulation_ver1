@@ -27,7 +27,7 @@
 #define CALCNUM 10000		// べき乗する数
 
 /* 出力ファイルパス */
-#define F_PATH "C:/Users/ryoin/source/repos/color_simulation_cuda/color_simulation_cuda"
+//#define F_PATH "C:/Users/ryoin/source/repos/color_simulation_cuda/color_simulation_cuda"
 
 using namespace std;
 
@@ -168,10 +168,49 @@ double* d65, double* obs_x, double* obs_y, double* obs_z, double* gauss_data) {
 	}
 }
 
-
 /* 積分計算カーネル */
-template<int BLOCK_SIZE> __global__ void colorSim() {
+template<int BLOCK_SIZE> __global__ void colorSim(double simNum,double *g_data) {
+	/* CUDAアクセス用変数 */
+	int ix = threadIdx.x;
+	/* どのガウシアンを決めるための変数 */
+	__shared__ int sim_order[10];
+	/* ガウシアン組み合わせの番号 */
+	__shared__ double sim_num;
+	/* 足し合わせたガウシアンを格納する */
+	double gaussian = 0;
 
+	/* sim_orderヘ値を入れる */
+	if (ix == 0) {
+		sim_num = blockIdx.x + simNum;
+		int count = 512;	// カウンタ
+		for (int i = 0; i < 10; i++) {
+			if (sim_num >= count) {
+				sim_num -= count;
+				sim_order[i] = 1;
+			}
+			else { 
+				sim_order[i] = 0;
+			}
+			count = count / 2;
+		}
+		/*printf("%d %d %d %d %d %d %d %d %d %d\n", 
+			sim_order[0], sim_order[1], sim_order[2], sim_order[3], sim_order[4],
+			sim_order[5], sim_order[6], sim_order[7], sim_order[8], sim_order[9] );*/
+	}
+
+	/* ブロック内のスレッド同期 */
+	__syncthreads();
+
+	/* ガウシアンを足し合わせる */
+	for (int i = 0; i < 10; i++) {
+		int aPos = i * BLOCK_SIZE + ix;
+		if (sim_order[i] == 1) {
+			gaussian += g_data[aPos];
+		}
+	}
+
+	/* ブロック内のスレッド同期 */
+	__syncthreads();
 }
 
 int main(void) {
@@ -190,6 +229,17 @@ int main(void) {
 	obs_z = new double[DATA_ROW];
 	gauss_data = new double[DATA_ROW * 10];
 
+	/* CUDA用の変数 */
+	double* d_d65, * d_obs_x, * d_obs_y, * d_obs_z, * d_gauss_data;
+	char* d_sim_order;
+
+	/* GPUメモリ確保 */
+	cudaMalloc((void**)&d_d65, DATA_ROW * sizeof(double));
+	cudaMalloc((void**)&d_obs_x, DATA_ROW * sizeof(double));
+	cudaMalloc((void**)&d_obs_y, DATA_ROW * sizeof(double));
+	cudaMalloc((void**)&d_obs_z, DATA_ROW * sizeof(double));
+	cudaMalloc((void**)&d_gauss_data, DATA_ROW * 10 * sizeof(double));
+
 	/* ファイル読み込み関数実行 */
 	int f_result = getFileData(d65_data, obs_data);
 
@@ -199,4 +249,5 @@ int main(void) {
 	/* vectorを1次元配列へ変換 */
 	cpyVecToArray(d65_data, obs_data, gauss_shift,d65,obs_x,obs_y,obs_z,gauss_data);
 
+	colorSim<DATA_ROW> << <1, DATA_ROW >> > (0,d_gauss_data);
 }
