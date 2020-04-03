@@ -168,6 +168,9 @@ double* d65, double* obs_x, double* obs_y, double* obs_z, double* gauss_data) {
 	}
 }
 
+
+/* 積分計算カーネル */
+
 int main(void) {
 	/* D65のデータを格納する配列 */
 	vector<vector<double> > d65_data(DATA_ROW, vector<double>(D65_COL, 0));
