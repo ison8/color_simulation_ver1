@@ -161,7 +161,7 @@ double* d65, double* obs_x, double* obs_y, double* obs_z, double* gauss_data) {
 		obs_x[i] = obs_data[i][1];
 		obs_y[i] = obs_data[i][2];
 		obs_z[i] = obs_data[i][3];
-		for (int j = 0; i < 10; j++) {
+		for (int j = 0; j < 10; j++) {
 			int aPos = DATA_ROW * j + i;
 			gauss_data[aPos] = shift_data[i][j];
 		}
@@ -170,6 +170,9 @@ double* d65, double* obs_x, double* obs_y, double* obs_z, double* gauss_data) {
 
 
 /* 積分計算カーネル */
+template<int BLOCK_SIZE> __global__ void colorSim() {
+
+}
 
 int main(void) {
 	/* D65のデータを格納する配列 */
@@ -179,9 +182,21 @@ int main(void) {
 	/*ガウシアンを10個格納する配列 */
 	vector<vector<double> > gauss_shift(DATA_ROW, vector<double>(10, 0));
 
+	/* データを入れる１次元配列 */
+	double* d65, * obs_x, * obs_y, * obs_z, * gauss_data;
+	d65 = new double[DATA_ROW];
+	obs_x= new double[DATA_ROW];
+	obs_y = new double[DATA_ROW];
+	obs_z = new double[DATA_ROW];
+	gauss_data = new double[DATA_ROW * 10];
+
 	/* ファイル読み込み関数実行 */
 	int f_result = getFileData(d65_data, obs_data);
 
 	/* ガウシアン計算 */
 	makeGaussShift(gauss_shift);
+
+	/* vectorを1次元配列へ変換 */
+	cpyVecToArray(d65_data, obs_data, gauss_shift,d65,obs_x,obs_y,obs_z,gauss_data);
+
 }
