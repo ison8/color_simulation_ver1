@@ -23,7 +23,7 @@
 #define PI 3.141592		// 円周率
 
 #define BLOCKSIZE 371		// 1ブロック当たりのスレッド数
-#define DATANUM 10			// 計算する数
+#define DATANUM 1			// 計算する数
 #define CALCNUM 10000		// べき乗する数
 
 /* 出力ファイルパス */
@@ -168,14 +168,31 @@ double* d65, double* obs_x, double* obs_y, double* obs_z, double* gauss_data) {
 	}
 }
 
+/* 総和計算の時に使用する変数を計算 */
+int getRemain(void) {
+	/* 余り */
+	int remain = 0;
+
+	/* 余り計算 */
+	for (int i = 1; i < BLOCKSIZE; i *= 2) {
+		remain = BLOCKSIZE - i;
+	}
+
+	/* 余り出力 */
+	return remain;
+}
+
 /* 積分計算カーネル */
-template<int BLOCK_SIZE> __global__ void colorSim(double simNum,double *g_data) {
+template<int BLOCK_SIZE> __global__ void colorSim(double simNum,double *g_data,double *d65,double *obs_x,double *obs_y,double *obs_z,double *result,int remain) {
 	/* CUDAアクセス用変数 */
 	int ix = threadIdx.x;
+	int aPos = 0;
 	/* どのガウシアンを決めるための変数 */
 	__shared__ int sim_order[10];
 	/* ガウシアン組み合わせの番号 */
 	__shared__ double sim_num;
+	/* 結果を格納するシェアードメモリ */
+	__shared__ double calc_data[BLOCK_SIZE][3];
 	/* 足し合わせたガウシアンを格納する */
 	double gaussian = 0;
 
@@ -203,7 +220,7 @@ template<int BLOCK_SIZE> __global__ void colorSim(double simNum,double *g_data) 
 
 	/* ガウシアンを足し合わせる */
 	for (int i = 0; i < 10; i++) {
-		int aPos = i * BLOCK_SIZE + ix;
+		aPos = i * BLOCK_SIZE + ix;
 		if (sim_order[i] == 1) {
 			gaussian += g_data[aPos];
 		}
@@ -211,6 +228,82 @@ template<int BLOCK_SIZE> __global__ void colorSim(double simNum,double *g_data) 
 
 	/* ブロック内のスレッド同期 */
 	__syncthreads();
+
+	for (int i = 0; i < CALCNUM; i++) {
+		/* シェアードメモリにデータ格納 */
+		calc_data[ix][0] = d65[ix] * obs_x[ix] * pow(gaussian, (0.01 * i));
+		calc_data[ix][1] = d65[ix] * obs_y[ix] * pow(gaussian, (0.01 * i));
+		calc_data[ix][2] = d65[ix] * obs_z[ix] * pow(gaussian, (0.01 * i));
+
+		/* ブロック同期 */
+		__syncthreads();
+
+		/* ブロックごとにリダクション処理(総和計算) */
+		/* 余りが0出ない場合 */
+		if (remain != 0) {
+			/* 余った要素のシェアードメモリを加算する */
+			if (ix < remain) {
+				calc_data[ix][0] += calc_data[BLOCK_SIZE - ix - 1][0];
+				calc_data[ix][1] += calc_data[BLOCK_SIZE - ix - 1][1];
+				calc_data[ix][2] += calc_data[BLOCK_SIZE - ix - 1][2];
+			}
+		}
+
+		/* 総和計算する */
+		if (BLOCK_SIZE >= 256) { if (ix < 128) { calc_data[ix][0] += calc_data[ix + 128][0];
+												 calc_data[ix][1] += calc_data[ix + 128][1];
+												 calc_data[ix][2] += calc_data[ix + 128][2];
+												}__syncthreads(); }
+		if (BLOCK_SIZE >= 128) { if (ix < 64) { calc_data[ix][0] += calc_data[ix + 64][0];
+												calc_data[ix][1] += calc_data[ix + 64][1];
+												calc_data[ix][2] += calc_data[ix + 64][2];
+												}__syncthreads(); }
+		if (BLOCK_SIZE >= 64) { if (ix < 32) { calc_data[ix][0] += calc_data[ix + 32][0];
+											   calc_data[ix][1] += calc_data[ix + 32][1];
+											   calc_data[ix][2] += calc_data[ix + 32][2];
+											 } }
+		if (BLOCK_SIZE >= 32) { if (ix < 16) { calc_data[ix][0] += calc_data[ix + 16][0];
+											   calc_data[ix][1] += calc_data[ix + 16][1];
+											   calc_data[ix][2] += calc_data[ix + 16][2];
+											 } }
+		if (BLOCK_SIZE >= 16) { if (ix < 8) { calc_data[ix][0] += calc_data[ix + 8][0];
+											  calc_data[ix][1] += calc_data[ix + 8][1];
+											  calc_data[ix][2] += calc_data[ix + 8][2];
+											} }
+		if (BLOCK_SIZE >= 8) { if (ix < 4) { calc_data[ix][0] += calc_data[ix + 4][0];
+											 calc_data[ix][1] += calc_data[ix + 4][1];
+											 calc_data[ix][2] += calc_data[ix + 4][2];
+											} }
+		if (BLOCK_SIZE >= 4) { if (ix < 2) { calc_data[ix][0] += calc_data[ix + 2][0];
+											 calc_data[ix][1] += calc_data[ix + 2][1];
+											 calc_data[ix][2] += calc_data[ix + 2][2];
+											} }
+		if (BLOCK_SIZE >= 2) { if (ix < 1) { calc_data[ix][0] += calc_data[ix + 1][0];
+											 calc_data[ix][1] += calc_data[ix + 1][1];
+											 calc_data[ix][2] += calc_data[ix + 1][2];
+											} }
+
+		/* 値出力 */
+		if (ix == 0) {
+			/* aPos更新 */
+			aPos = blockIdx.x * 3 * CALCNUM + i;
+			//printf("%d %d\n", blockIdx.x,calc_data[ix]);
+			result[aPos] = calc_data[0][0];
+
+			/* aPos更新 */
+			aPos = blockIdx.x * 3 * CALCNUM + i + CALCNUM;
+			//printf("%d %d\n", blockIdx.x,calc_data[ix]);
+			result[aPos] = calc_data[0][1];
+
+			/* aPos更新 */
+			aPos = blockIdx.x * 3 * CALCNUM + i + (2 * CALCNUM);
+			//printf("%d %d\n", blockIdx.x,calc_data[ix]);
+			result[aPos] = calc_data[0][2];
+		}
+
+		/* ブロック同期 */
+		__syncthreads();
+	}
 }
 
 int main(void) {
@@ -221,16 +314,20 @@ int main(void) {
 	/*ガウシアンを10個格納する配列 */
 	vector<vector<double> > gauss_shift(DATA_ROW, vector<double>(10, 0));
 
+	/* 余り計算 */
+	int remain = getRemain();
+
 	/* データを入れる１次元配列 */
-	double* d65, * obs_x, * obs_y, * obs_z, * gauss_data;
+	double* d65, * obs_x, * obs_y, * obs_z, * gauss_data, * result;
 	d65 = new double[DATA_ROW];
 	obs_x= new double[DATA_ROW];
 	obs_y = new double[DATA_ROW];
 	obs_z = new double[DATA_ROW];
 	gauss_data = new double[DATA_ROW * 10];
+	result = new double[3 * DATANUM * CALCNUM];
 
 	/* CUDA用の変数 */
-	double* d_d65, * d_obs_x, * d_obs_y, * d_obs_z, * d_gauss_data;
+	double* d_d65, * d_obs_x, * d_obs_y, * d_obs_z, * d_gauss_data, *d_result;
 	char* d_sim_order;
 
 	/* GPUメモリ確保 */
@@ -239,6 +336,7 @@ int main(void) {
 	cudaMalloc((void**)&d_obs_y, DATA_ROW * sizeof(double));
 	cudaMalloc((void**)&d_obs_z, DATA_ROW * sizeof(double));
 	cudaMalloc((void**)&d_gauss_data, DATA_ROW * 10 * sizeof(double));
+	cudaMalloc((void**)&d_result, 3 * DATANUM * CALCNUM * sizeof(double));
 
 	/* ファイル読み込み関数実行 */
 	int f_result = getFileData(d65_data, obs_data);
@@ -249,5 +347,25 @@ int main(void) {
 	/* vectorを1次元配列へ変換 */
 	cpyVecToArray(d65_data, obs_data, gauss_shift,d65,obs_x,obs_y,obs_z,gauss_data);
 
-	colorSim<DATA_ROW> << <1, DATA_ROW >> > (0,d_gauss_data);
+
+	/* CUDAへのメモリコピー */
+	cudaMemcpy(d_d65, d65, DATA_ROW * sizeof(double), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_obs_x, obs_x, DATA_ROW * sizeof(double), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_obs_y, obs_y, DATA_ROW * sizeof(double), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_obs_z, obs_z, DATA_ROW * sizeof(double), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_gauss_data, gauss_data, DATA_ROW * 10 * sizeof(double), cudaMemcpyHostToDevice);
+
+	colorSim<DATA_ROW> << <1, DATA_ROW >> > (0,d_gauss_data,d_d65,d_obs_x,d_obs_y,d_obs_z,d_result,remain);
+	cudaDeviceSynchronize();
+
+	/* 結果のコピー */
+	cudaMemcpy(result, d_result, 3 * DATANUM * CALCNUM * sizeof(double), cudaMemcpyDeviceToHost);
+
+	/* デバイスメモリ解放 */
+	cudaFree(d_d65);
+	cudaFree(d_gauss_data);
+	cudaFree(d_obs_x);
+	cudaFree(d_obs_y);
+	cudaFree(d_obs_z);
+	cudaFree(d_result);
 }
