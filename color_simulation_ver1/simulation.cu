@@ -23,8 +23,9 @@
 #define PI 3.141592		// 円周率
 
 #define BLOCKSIZE 371		// 1ブロック当たりのスレッド数
-#define DATANUM 1			// 計算する数
-#define CALCNUM 10000		// べき乗する数
+#define DATANUM 10			// 計算する数
+#define CALCNUM 100		// べき乗する数
+#define SIMNUM 900			// シミュレーションする回数
 
 /* 出力ファイルパス */
 //#define F_PATH "C:/Users/ryoin/source/repos/color_simulation_cuda/color_simulation_cuda"
@@ -194,7 +195,8 @@ template<int BLOCK_SIZE> __global__ void colorSim(double simNum,double *g_data,d
 	/* 結果を格納するシェアードメモリ */
 	__shared__ double calc_data[BLOCK_SIZE][3];
 	/* 足し合わせたガウシアンの最大値 */
-	__shared__ double g_max = 0;
+	__shared__ double g_max;
+	g_max = 0;
 	/* 足し合わせたガウシアンを格納する */
 	double gaussian = 0;
 	/* 足し合わせたガウシアンを格納(最大値比較用) */
@@ -252,6 +254,9 @@ template<int BLOCK_SIZE> __global__ void colorSim(double simNum,double *g_data,d
 	if (g_max >= 1) {
 		gaussian = gaussian / g_max * 0.99;
 	}
+
+	/* ブロック内のスレッド同期 */
+	__syncthreads();
 
 	for (int i = 0; i < CALCNUM; i++) {
 		/* シェアードメモリにデータ格納 */
@@ -323,6 +328,8 @@ template<int BLOCK_SIZE> __global__ void colorSim(double simNum,double *g_data,d
 			aPos = blockIdx.x * 3 * CALCNUM + i + (2 * CALCNUM);
 			//printf("%d %d\n", blockIdx.x,calc_data[ix]);
 			result[aPos] = calc_data[0][2];
+
+			//printf("%.3lf %.3lf %.3lf\n", calc_data[0][0], calc_data[0][1], calc_data[0][2]);
 		}
 
 		/* ブロック同期 */
@@ -342,13 +349,14 @@ int main(void) {
 	int remain = getRemain();
 
 	/* データを入れる１次元配列 */
-	double* d65, * obs_x, * obs_y, * obs_z, * gauss_data, * result;
+	double* d65, * obs_x, * obs_y, * obs_z, * gauss_data, * result, * fin_result;
 	d65 = new double[DATA_ROW];
 	obs_x= new double[DATA_ROW];
 	obs_y = new double[DATA_ROW];
 	obs_z = new double[DATA_ROW];
 	gauss_data = new double[DATA_ROW * 10];
 	result = new double[3 * DATANUM * CALCNUM];
+	fin_result = new double[3 * SIMNUM * CALCNUM];
 
 	/* CUDA用の変数 */
 	double* d_d65, * d_obs_x, * d_obs_y, * d_obs_z, * d_gauss_data, *d_result;
@@ -379,11 +387,42 @@ int main(void) {
 	cudaMemcpy(d_obs_z, obs_z, DATA_ROW * sizeof(double), cudaMemcpyHostToDevice);
 	cudaMemcpy(d_gauss_data, gauss_data, DATA_ROW * 10 * sizeof(double), cudaMemcpyHostToDevice);
 
-	colorSim<DATA_ROW> << <1, DATA_ROW >> > (0,d_gauss_data,d_d65,d_obs_x,d_obs_y,d_obs_z,d_result,remain);
-	cudaDeviceSynchronize();
 
-	/* 結果のコピー */
-	cudaMemcpy(result, d_result, 3 * DATANUM * CALCNUM * sizeof(double), cudaMemcpyDeviceToHost);
+	int count = 0;
+	for (int i = 0; i < SIMNUM; i += DATANUM) {
+		colorSim<DATA_ROW> << <DATANUM, DATA_ROW >> > ((i+1), d_gauss_data, d_d65, d_obs_x, d_obs_y, d_obs_z, d_result, remain);
+		cudaDeviceSynchronize();
+
+		/* 結果のコピー */
+		cudaMemcpy(result, d_result, 3 * DATANUM * CALCNUM * sizeof(double), cudaMemcpyDeviceToHost);
+		
+		/*for (int j = 0; j < (3 * DATANUM * CALCNUM); j++) {
+			int aPos = (count * 3 * DATANUM * CALCNUM) + j;
+			fin_result[aPos] = result[j];
+		}
+		count++;*/
+	}
+
+	/* 出力ファイル名 */
+	string fname = "sim_result.csv";
+
+	/* ファイル出力ストリーム */
+	ofstream o_file(fname);
+
+	/* ファイルへの出力桁数指定 */
+	o_file << fixed << setprecision(2);
+
+	/* ファイル書き込み */
+	for (int i = 0; i < CALCNUM; i++) {
+		for (int j = 0; j < SIMNUM; j++) {
+			for (int k = 0; k < 3; k++) {
+				int apos = i + (j + k) * CALCNUM;
+				o_file << result[apos] << ",";
+			}
+		}
+		o_file << endl << flush;
+	}
+
 
 	/* デバイスメモリ解放 */
 	cudaFree(d_d65);
@@ -391,5 +430,16 @@ int main(void) {
 	cudaFree(d_obs_x);
 	cudaFree(d_obs_y);
 	cudaFree(d_obs_z);
-	cudaFree(d_result);
+	cudaFree(d_result); 
+
+	/* ホストメモリ解放 */
+	delete[] d65;
+	delete[] obs_x;
+	delete[] obs_y;
+	delete[] obs_z;
+	delete[] gauss_data;
+	delete[] result;
+	delete[] fin_result;
+
+	return 0;
 }
