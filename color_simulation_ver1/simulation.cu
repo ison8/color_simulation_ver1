@@ -193,8 +193,14 @@ template<int BLOCK_SIZE> __global__ void colorSim(double simNum,double *g_data,d
 	__shared__ double sim_num;
 	/* 結果を格納するシェアードメモリ */
 	__shared__ double calc_data[BLOCK_SIZE][3];
+	/* 足し合わせたガウシアンの最大値 */
+	__shared__ double g_max = 0;
 	/* 足し合わせたガウシアンを格納する */
 	double gaussian = 0;
+	/* 足し合わせたガウシアンを格納(最大値比較用) */
+	__shared__ double g_comp[BLOCK_SIZE];
+	/* 比較用シェアードメモリ初期化 */
+	g_comp[ix] = 0;
 
 	/* sim_orderヘ値を入れる */
 	if (ix == 0) {
@@ -223,11 +229,29 @@ template<int BLOCK_SIZE> __global__ void colorSim(double simNum,double *g_data,d
 		aPos = i * BLOCK_SIZE + ix;
 		if (sim_order[i] == 1) {
 			gaussian += g_data[aPos];
+			g_comp[ix] += g_data[aPos];
 		}
 	}
 
 	/* ブロック内のスレッド同期 */
 	__syncthreads();
+
+	/* 足し合わせたガウシアンの最大値を求める */
+	if (ix == 0) {
+		for (int i = 0; i < BLOCK_SIZE; i++) {
+			if (g_max < g_comp[i]) {
+				g_max = g_comp[i];
+			}
+		}
+	}
+
+	/* ブロック内のスレッド同期 */
+	__syncthreads();
+
+	/* g_max が1以上の場合、最大値が0.99になるように正規化 */
+	if (g_max >= 1) {
+		gaussian = gaussian / g_max * 0.99;
+	}
 
 	for (int i = 0; i < CALCNUM; i++) {
 		/* シェアードメモリにデータ格納 */
