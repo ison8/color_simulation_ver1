@@ -23,9 +23,9 @@
 #define PI 3.141592		// 円周率
 
 #define BLOCKSIZE 371		// 1ブロック当たりのスレッド数
-#define DATANUM 10			// 計算する数
+#define DATANUM 50			// 計算する数
 #define CALCNUM 10000		// べき乗する数
-#define SIMNUM 100			// シミュレーションする回数
+#define SIMNUM 10000			// シミュレーションする回数
 
 /* 出力ファイルパス */
 //#define F_PATH "C:/Users/ryoin/source/repos/color_simulation_cuda/color_simulation_cuda"
@@ -290,28 +290,40 @@ template<int BLOCK_SIZE> __global__ void colorSim(double simNum,double *g_data,d
 		if (BLOCK_SIZE >= 64) { if (ix < 32) { calc_data[ix][0] += calc_data[ix + 32][0];
 											   calc_data[ix][1] += calc_data[ix + 32][1];
 											   calc_data[ix][2] += calc_data[ix + 32][2];
-											 } }
+											 } __syncthreads();}
 		if (BLOCK_SIZE >= 32) { if (ix < 16) { calc_data[ix][0] += calc_data[ix + 16][0];
 											   calc_data[ix][1] += calc_data[ix + 16][1];
 											   calc_data[ix][2] += calc_data[ix + 16][2];
-											 } }
+											 } __syncthreads();
+		}
 		if (BLOCK_SIZE >= 16) { if (ix < 8) { calc_data[ix][0] += calc_data[ix + 8][0];
 											  calc_data[ix][1] += calc_data[ix + 8][1];
 											  calc_data[ix][2] += calc_data[ix + 8][2];
-											} }
+											}__syncthreads();
+		}
 		if (BLOCK_SIZE >= 8) { if (ix < 4) { calc_data[ix][0] += calc_data[ix + 4][0];
 											 calc_data[ix][1] += calc_data[ix + 4][1];
 											 calc_data[ix][2] += calc_data[ix + 4][2];
-											} }
+											} __syncthreads();
+		}
 		if (BLOCK_SIZE >= 4) { if (ix < 2) { calc_data[ix][0] += calc_data[ix + 2][0];
 											 calc_data[ix][1] += calc_data[ix + 2][1];
 											 calc_data[ix][2] += calc_data[ix + 2][2];
-											} }
+											} __syncthreads();
+		}
 		if (BLOCK_SIZE >= 2) { if (ix < 1) { calc_data[ix][0] += calc_data[ix + 1][0];
 											 calc_data[ix][1] += calc_data[ix + 1][1];
 											 calc_data[ix][2] += calc_data[ix + 1][2];
-											} }
+											} __syncthreads();
+		}
 
+		/*if (ix == 0) {
+			for (int j = 1; j < BLOCK_SIZE; j++) {
+				calc_data[ix][0] += calc_data[i][0];
+				calc_data[ix][1] += calc_data[i][1];
+				calc_data[ix][2] += calc_data[i][2];
+			}
+		}*/
 		/* 値出力 */
 		if (ix == 0) {
 			/* aPos更新 */
@@ -390,7 +402,7 @@ int main(void) {
 
 	int count = 0;
 	for (int i = 0; i < (SIMNUM - DATANUM); i += DATANUM) {
-		colorSim<DATA_ROW> << <DATANUM, DATA_ROW >> > ((i+1), d_gauss_data, d_d65, d_obs_x, d_obs_y, d_obs_z, d_result, remain);
+		colorSim<DATA_ROW> << <DATANUM, DATA_ROW >> > ((i+200), d_gauss_data, d_d65, d_obs_x, d_obs_y, d_obs_z, d_result, remain);
 		cudaDeviceSynchronize();
 
 		/* 結果のコピー */
