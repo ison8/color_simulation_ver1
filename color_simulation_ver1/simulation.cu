@@ -410,18 +410,18 @@ int main(void) {
 	ofstream o_file(fname);
 
 	/* ファイルへの出力桁数指定 */
-	o_file << fixed << setprecision(2);
+	o_file << fixed << setprecision(3);
 
 	/* ファイル書き込み */
-	for (int i = 0; i < CALCNUM; i++) {
-		for (int j = 0; j < SIMNUM; j++) {
-			for (int k = 0; k < 3; k++) {
-				int apos = i + (3 * j + k) * CALCNUM;
-				o_file << fin_result[apos] << ",";
-			}
-		}
-		o_file << endl << flush;
-	}
+	//for (int i = 0; i < CALCNUM; i++) {
+	//	for (int j = 0; j < SIMNUM; j++) {
+	//		for (int k = 0; k < 3; k++) {
+	//			int apos = i + (3 * j + k) * CALCNUM;
+	//			o_file << fin_result[apos] << ",";
+	//		}
+	//	}
+	//	o_file << endl << flush;
+	//}
 
 	//for (int i = 0; i < SIMNUM; i++) {
 	//	for (int j = 0; j < 3; j++) {
@@ -432,6 +432,23 @@ int main(void) {
 	//		o_file << endl << flush;
 	//	}
 	//}
+
+	for (int i = 0; i < CALCNUM; i++) {
+		for (int j = 0; j < SIMNUM; j++) {
+			int apos = i + (3 * j) * CALCNUM;
+
+			double X = fin_result[apos];
+			double Y = fin_result[apos + CALCNUM];
+			double Z = fin_result[apos + (2 * CALCNUM)];
+
+			double x = X / (X + Y + Z);
+			double y = Y / (X + Y + Z);
+			double z = Z / (X + Y + Z);
+
+			o_file << x << "," << y << "," << z << ",";
+		}
+		o_file << endl << flush;
+	}
 
 	/* デバイスメモリ解放 */
 	cudaFree(d_d65);
