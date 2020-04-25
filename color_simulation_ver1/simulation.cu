@@ -25,7 +25,8 @@
 #define BLOCKSIZE 371		// 1ブロック当たりのスレッド数
 #define DATANUM 50			// 計算する数
 #define CALCNUM 10000		// べき乗する数
-#define SIMNUM 10000			// シミュレーションする回数
+#define SIMNUM 1024			// シミュレーションする回数
+#define LOOPNUM 10			// SIMNUM回のシミュレーション繰り返す回数
 
 /* 出力ファイルパス */
 //#define F_PATH "C:/Users/ryoin/source/repos/color_simulation_cuda/color_simulation_cuda"
@@ -131,7 +132,7 @@ void makeGaussShift(vector<vector<double> >& shift_data) {
 	/* 波形は10パターン生成するので10回でループする */
 	for (int i = 0; i < 10; i++) {
 		mu = (double)DATA_MIN + ((double)DATA_MAX - (double)DATA_MIN) / 10 * i;
-		sigma = 20 + (80 * (double)rand() / RAND_MAX);
+		sigma = 5 + (80 * (double)rand() / RAND_MAX);
 
 		/* データ数だけ計算する */
 		for (int j = 0; j < DATA_ROW; j++) {
@@ -368,7 +369,7 @@ int main(void) {
 	obs_z = new double[DATA_ROW];
 	gauss_data = new double[DATA_ROW * 10];
 	result = new double[3 * DATANUM * CALCNUM];
-	fin_result = new double[3 * SIMNUM * CALCNUM];
+	fin_result = new double[3 * SIMNUM * CALCNUM * LOOPNUM];
 
 	/* CUDA用の変数 */
 	double* d_d65, * d_obs_x, * d_obs_y, * d_obs_z, * d_gauss_data, *d_result;
@@ -402,7 +403,7 @@ int main(void) {
 
 	int count = 0;
 	for (int i = 0; i < (SIMNUM - DATANUM); i += DATANUM) {
-		colorSim<DATA_ROW> << <DATANUM, DATA_ROW >> > ((i+200), d_gauss_data, d_d65, d_obs_x, d_obs_y, d_obs_z, d_result, remain);
+		colorSim<DATA_ROW> << <DATANUM, DATA_ROW >> > (i, d_gauss_data, d_d65, d_obs_x, d_obs_y, d_obs_z, d_result, remain);
 		cudaDeviceSynchronize();
 
 		/* 結果のコピー */
@@ -413,6 +414,21 @@ int main(void) {
 			fin_result[aPos] = result[j];
 		}
 		count++;
+	}
+
+	for (int i = 0; i < LOOPNUM; i++) {
+		for (int j = 0; j < SIMNUM; j++) {
+			colorSim<DATA_ROW> << <DATANUM, DATA_ROW >> > ((j+1), d_gauss_data, d_d65, d_obs_x, d_obs_y, d_obs_z, d_result, remain);
+			cudaDeviceSynchronize();
+
+			/* 結果のコピー */
+			cudaMemcpy(result, d_result, 3 * DATANUM * CALCNUM * sizeof(double), cudaMemcpyDeviceToHost);
+
+			for (int k = 0; k < (3 * DATANUM * CALCNUM); k++) {
+				int aPos = 
+				fin_result[aPos] = result[j];
+			}
+		}
 	}
 
 	/* 出力ファイル名 */
