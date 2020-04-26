@@ -24,9 +24,9 @@
 
 #define BLOCKSIZE 371		// 1ブロック当たりのスレッド数
 #define DATANUM 50			// 計算する数
-#define CALCNUM 10000		// べき乗する数
-#define SIMNUM 1024			// シミュレーションする回数
-#define LOOPNUM 10			// SIMNUM回のシミュレーション繰り返す回数
+#define CALCNUM 100		// べき乗する数
+#define SIMNUM 1023			// シミュレーションする回数
+#define LOOPNUM 2			// SIMNUM回のシミュレーション繰り返す回数
 
 /* 出力ファイルパス */
 //#define F_PATH "C:/Users/ryoin/source/repos/color_simulation_cuda/color_simulation_cuda"
@@ -386,12 +386,8 @@ int main(void) {
 	/* ファイル読み込み関数実行 */
 	int f_result = getFileData(d65_data, obs_data);
 
-	/* ガウシアン計算 */
-	makeGaussShift(gauss_shift);
-
 	/* vectorを1次元配列へ変換 */
-	cpyVecToArray(d65_data, obs_data, gauss_shift,d65,obs_x,obs_y,obs_z,gauss_data);
-
+	cpyVecToArray(d65_data, obs_data, gauss_shift, d65, obs_x, obs_y, obs_z, gauss_data);
 
 	/* CUDAへのメモリコピー */
 	cudaMemcpy(d_d65, d65, DATA_ROW * sizeof(double), cudaMemcpyHostToDevice);
@@ -402,22 +398,29 @@ int main(void) {
 
 
 	int count = 0;
-	for (int i = 0; i < (SIMNUM - DATANUM); i += DATANUM) {
-		colorSim<DATA_ROW> << <DATANUM, DATA_ROW >> > (i, d_gauss_data, d_d65, d_obs_x, d_obs_y, d_obs_z, d_result, remain);
-		cudaDeviceSynchronize();
+	//for (int i = 0; i < (SIMNUM - DATANUM); i += DATANUM) {
+	//	colorSim<DATA_ROW> << <DATANUM, DATA_ROW >> > (i, d_gauss_data, d_d65, d_obs_x, d_obs_y, d_obs_z, d_result, remain);
+	//	cudaDeviceSynchronize();
 
-		/* 結果のコピー */
-		cudaMemcpy(result, d_result, 3 * DATANUM * CALCNUM * sizeof(double), cudaMemcpyDeviceToHost);
-		
-		for (int j = 0; j < (3 * DATANUM * CALCNUM); j++) {
-			int aPos = (count * 3 * DATANUM * CALCNUM) + j;
-			fin_result[aPos] = result[j];
-		}
-		count++;
-	}
+	//	/* 結果のコピー */
+	//	cudaMemcpy(result, d_result, 3 * DATANUM * CALCNUM * sizeof(double), cudaMemcpyDeviceToHost);
+	//	
+	//	for (int j = 0; j < (3 * DATANUM * CALCNUM); j++) {
+	//		int aPos = (count * 3 * DATANUM * CALCNUM) + j;
+	//		fin_result[aPos] = result[j];
+	//	}
+	//	count++;
+	//}
 
 	for (int i = 0; i < LOOPNUM; i++) {
-		for (int j = 0; j < SIMNUM; j++) {
+		/* ガウシアン計算 */
+		makeGaussShift(gauss_shift);
+		/* vectorを1次元配列へ変換 */
+		cpyVecToArray(d65_data, obs_data, gauss_shift, d65, obs_x, obs_y, obs_z, gauss_data);
+		/* CUDAへのメモリコピー */
+		cudaMemcpy(d_gauss_data, gauss_data, DATA_ROW * 10 * sizeof(double), cudaMemcpyHostToDevice);
+
+		for(int j = 0; j < (SIMNUM - DATANUM); j += DATANUM) {
 			colorSim<DATA_ROW> << <DATANUM, DATA_ROW >> > ((j+1), d_gauss_data, d_d65, d_obs_x, d_obs_y, d_obs_z, d_result, remain);
 			cudaDeviceSynchronize();
 
@@ -425,14 +428,27 @@ int main(void) {
 			cudaMemcpy(result, d_result, 3 * DATANUM * CALCNUM * sizeof(double), cudaMemcpyDeviceToHost);
 
 			for (int k = 0; k < (3 * DATANUM * CALCNUM); k++) {
-				int aPos = 
-				fin_result[aPos] = result[j];
+				int aPos = (i * 3 * CALCNUM * SIMNUM) + (3 * CALCNUM * j) + k;
+				fin_result[aPos] = result[k];
 			}
+		}
+
+		/* ループで余った残りの数をシミュレーション */
+		int r_num = SIMNUM % DATANUM - 1;
+		int sim_num = SIMNUM - r_num - 1;
+		colorSim<DATA_ROW> << <r_num, DATA_ROW >> > ((sim_num + 1), d_gauss_data, d_d65, d_obs_x, d_obs_y, d_obs_z, d_result, remain);
+
+		/* 結果のコピー */
+		cudaMemcpy(result, d_result, 3 * DATANUM * CALCNUM * sizeof(double), cudaMemcpyDeviceToHost);
+
+		for (int k = 0; k < (3 * r_num * CALCNUM); k++) { 
+			int aPos = (i * 3 * CALCNUM * SIMNUM) + (3 * CALCNUM * sim_num) + k;
+			fin_result[aPos] = result[k];
 		}
 	}
 
 	/* 出力ファイル名 */
-	string fname = "sim_result.csv";
+	string fname = "C:/Users/KoidaLab-WorkStation/Desktop/isomura_ws/color_simulation_result/sim_result.csv";
 
 	/* ファイル出力ストリーム */
 	ofstream o_file(fname);
@@ -462,7 +478,7 @@ int main(void) {
 	//}
 
 	for (int i = 0; i < CALCNUM; i++) {
-		for (int j = 0; j < SIMNUM; j++) {
+		for (int j = 0; j < ( (LOOPNUM * SIMNUM) - 1); j++) {
 			int apos = i + (3 * j) * CALCNUM;
 
 			double X = fin_result[apos];
@@ -475,6 +491,18 @@ int main(void) {
 
 			o_file << x << "," << y << "," << z << ",";
 		}
+		int apos = i + (3 * SIMNUM) * CALCNUM;
+
+		double X = fin_result[apos];
+		double Y = fin_result[apos + CALCNUM];
+		double Z = fin_result[apos + (2 * CALCNUM)];
+
+		double x = X / (X + Y + Z);
+		double y = Y / (X + Y + Z);
+		double z = Z / (X + Y + Z);
+
+		o_file << x << "," << y << "," << z;
+
 		o_file << endl << flush;
 	}
 
