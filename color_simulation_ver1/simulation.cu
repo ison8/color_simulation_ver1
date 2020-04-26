@@ -28,9 +28,6 @@
 #define SIMNUM 1023			// シミュレーションする回数
 #define LOOPNUM 2			// SIMNUM回のシミュレーション繰り返す回数
 
-/* 出力ファイルパス */
-//#define F_PATH "C:/Users/ryoin/source/repos/color_simulation_cuda/color_simulation_cuda"
-
 using namespace std;
 
 /* CUDAエラーチェック */
@@ -397,21 +394,6 @@ int main(void) {
 	cudaMemcpy(d_gauss_data, gauss_data, DATA_ROW * 10 * sizeof(double), cudaMemcpyHostToDevice);
 
 
-	int count = 0;
-	//for (int i = 0; i < (SIMNUM - DATANUM); i += DATANUM) {
-	//	colorSim<DATA_ROW> << <DATANUM, DATA_ROW >> > (i, d_gauss_data, d_d65, d_obs_x, d_obs_y, d_obs_z, d_result, remain);
-	//	cudaDeviceSynchronize();
-
-	//	/* 結果のコピー */
-	//	cudaMemcpy(result, d_result, 3 * DATANUM * CALCNUM * sizeof(double), cudaMemcpyDeviceToHost);
-	//	
-	//	for (int j = 0; j < (3 * DATANUM * CALCNUM); j++) {
-	//		int aPos = (count * 3 * DATANUM * CALCNUM) + j;
-	//		fin_result[aPos] = result[j];
-	//	}
-	//	count++;
-	//}
-
 	for (int i = 0; i < LOOPNUM; i++) {
 		/* ガウシアン計算 */
 		makeGaussShift(gauss_shift);
@@ -457,26 +439,6 @@ int main(void) {
 	o_file << fixed << setprecision(3);
 
 	/* ファイル書き込み */
-	//for (int i = 0; i < CALCNUM; i++) {
-	//	for (int j = 0; j < SIMNUM; j++) {
-	//		for (int k = 0; k < 3; k++) {
-	//			int apos = i + (3 * j + k) * CALCNUM;
-	//			o_file << fin_result[apos] << ",";
-	//		}
-	//	}
-	//	o_file << endl << flush;
-	//}
-
-	//for (int i = 0; i < SIMNUM; i++) {
-	//	for (int j = 0; j < 3; j++) {
-	//		for (int k = 0; k < CALCNUM; k++) {
-	//			int apos = (3 * i * CALCNUM) + (j * CALCNUM) + k;
-	//			o_file << fin_result[apos] << ",";
-	//		}
-	//		o_file << endl << flush;
-	//	}
-	//}
-
 	for (int i = 0; i < CALCNUM; i++) {
 		for (int j = 0; j < ( (LOOPNUM * SIMNUM) - 1); j++) {
 			int apos = i + (3 * j) * CALCNUM;
