@@ -24,7 +24,7 @@
 
 #define BLOCKSIZE 371		// 1ブロック当たりのスレッド数
 #define DATANUM 50			// 計算する数
-#define CALCNUM 100		// べき乗する数
+#define CALCNUM 10000		// べき乗する数
 #define SIMNUM 1023			// シミュレーションする回数
 #define LOOPNUM 2			// SIMNUM回のシミュレーション繰り返す回数
 
@@ -129,7 +129,7 @@ void makeGaussShift(vector<vector<double> >& shift_data) {
 	/* 波形は10パターン生成するので10回でループする */
 	for (int i = 0; i < 10; i++) {
 		mu = (double)DATA_MIN + ((double)DATA_MAX - (double)DATA_MIN) / 10 * i;
-		sigma = 5 + (80 * (double)rand() / RAND_MAX);
+		sigma = 5 + (95 * (double)rand() / RAND_MAX);
 
 		/* データ数だけ計算する */
 		for (int j = 0; j < DATA_ROW; j++) {
@@ -430,7 +430,7 @@ int main(void) {
 	}
 
 	/* 出力ファイル名 */
-	string fname = "C:/Users/KoidaLab-WorkStation/Desktop/isomura_ws/color_simulation_result/sim_result.csv";
+	string fname = "C:/Users/KoidaLab-WorkStation/Desktop/isomura_ws/color_simulation_result/sim_result_1000.csv";
 
 	/* ファイル出力ストリーム */
 	ofstream o_file(fname);
