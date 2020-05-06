@@ -24,7 +24,7 @@
 
 #define BLOCKSIZE 371		// 1ブロック当たりのスレッド数
 #define DATANUM 50			// 計算する数
-#define CALCNUM 100		// べき乗する数
+#define CALCNUM 10000		// べき乗する数
 #define SIMNUM 1023			// シミュレーションする回数
 #define LOOPNUM 2			// SIMNUM回のシミュレーション繰り返す回数
 
@@ -429,18 +429,23 @@ int main(void) {
 		}
 	}
 
+	/* 出力ディレクトリ */
+	string directory = "C:/Users/KoidaLab-WorkStation/Desktop/isomura_ws/color_simulation_result/sim_test_1023_10000_10/";
+
 	/* 出力したファイルの情報を記録するファイル */
-	string f_info = "C:/Users/KoidaLab-WorkStation/Desktop/isomura_ws/color_simulation_result/sim_file_info.txt";
+	string f_info = "sim_file_info.txt";
+	f_info = directory + f_info;
 	ofstream o_f_info(f_info);
 
 	/* ファイル書き込み */
 	for (int i = 0; i < LOOPNUM; i++) {
 		/* 出力ファイル名 */
-		string fname1 = "C:/Users/KoidaLab-WorkStation/Desktop/isomura_ws/color_simulation_result/sim_result_XYZ_1023_";
-		string fname2 = "C:/Users/KoidaLab-WorkStation/Desktop/isomura_ws/color_simulation_result/sim_result_xyz_1023_";
+		string fname1 = "sim_result_L_xyz_1023";
+		string fname2 = "sim_result_S_xyz_1023";
 		string fend = ".csv";
-		fname1 = fname1 + to_string(i + 1) + fend;
-		fname2 = fname2 + to_string(i + 1) + fend;
+		fname1 = directory + fname1 + to_string(i + 1) + fend;
+		fname2 = directory + fname2 + to_string(i + 1) + fend;
+
 		/* ファイル出力ストリーム */
 		ofstream o_file1(fname1);
 		ofstream o_file2(fname2);
@@ -467,7 +472,7 @@ int main(void) {
 				o_file1 << X << "," << Y << "," << Z << ",";
 				o_file2 << x << "," << y << "," << z << ",";
 			}
-			int apos = j + (3 * SIMNUM) * CALCNUM + (3 * SIMNUM * CALCNUM * i);
+			int apos = j + (3 * (SIMNUM - 1)) * CALCNUM + (3 * SIMNUM * CALCNUM * i);
 
 			double X = fin_result[apos];
 			double Y = fin_result[apos + CALCNUM];
@@ -478,7 +483,7 @@ int main(void) {
 			double z = Z / (X + Y + Z);
 
 			o_file1 << X << "," << Y << "," << Z;
-			o_file1 << x << "," << y << "," << z;
+			o_file2 << x << "," << y << "," << z;
 
 			o_file1 << endl << flush;
 			o_file2 << endl << flush;
