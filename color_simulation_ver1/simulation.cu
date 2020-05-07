@@ -24,9 +24,9 @@
 
 #define BLOCKSIZE 371		// 1ブロック当たりのスレッド数
 #define DATANUM 50			// 計算する数
-#define CALCNUM 10000		// べき乗する数
+#define CALCNUM 100		// べき乗する数
 #define SIMNUM 1023			// シミュレーションする回数
-#define LOOPNUM 2			// SIMNUM回のシミュレーション繰り返す回数
+#define LOOPNUM 10			// SIMNUM回のシミュレーション繰り返す回数
 
 using namespace std;
 
@@ -429,8 +429,24 @@ int main(void) {
 		}
 	}
 
+	/* 結果が終了条件を満たしているときに値を0にする */
+	for (int i = 0; i < LOOPNUM; i++) {
+		for (int j = 0; j < SIMNUM; j++) {
+			for (int k = 0; k < CALCNUM; k++) {
+				int aPos = (i * 3 * SIMNUM * CALCNUM) + (j * 3 * CALCNUM) + k;
+				if ((fin_result[0] * 0.005) > fin_result[aPos] &&
+					(fin_result[CALCNUM] * 0.005) > fin_result[aPos + CALCNUM] && 
+					(fin_result[CALCNUM * 2] * 0.005) > fin_result[aPos + (CALCNUM * 2)]) {
+					fin_result[aPos] = 0;
+					fin_result[aPos + CALCNUM] = 0;
+					fin_result[aPos + (CALCNUM * 2)] = 0;
+				}
+			}
+		}
+	}
+
 	/* 出力ディレクトリ */
-	string directory = "C:/Users/KoidaLab-WorkStation/Desktop/isomura_ws/color_simulation_result/sim_test_1023_10000_10/";
+	string directory = "C:/Users/KoidaLab-WorkStation/Desktop/isomura_ws/color_simulation_result/sim_1023_10000_10/";
 
 	/* 出力したファイルの情報を記録するファイル */
 	string f_info = "sim_file_info.txt";
@@ -440,8 +456,8 @@ int main(void) {
 	/* ファイル書き込み */
 	for (int i = 0; i < LOOPNUM; i++) {
 		/* 出力ファイル名 */
-		string fname1 = "sim_result_L_xyz_1023";
-		string fname2 = "sim_result_S_xyz_1023";
+		string fname1 = "sim_result_L_xyz_1023_";
+		string fname2 = "sim_result_S_xyz_1023_";
 		string fend = ".csv";
 		fname1 = directory + fname1 + to_string(i + 1) + fend;
 		fname2 = directory + fname2 + to_string(i + 1) + fend;
@@ -465,12 +481,21 @@ int main(void) {
 				double Y = fin_result[apos + CALCNUM];
 				double Z = fin_result[apos + (2 * CALCNUM)];
 
-				double x = X / (X + Y + Z);
-				double y = Y / (X + Y + Z);
-				double z = Z / (X + Y + Z);
+				/* XYZ == 0のとき */
+				if (X == 0 && Y == 0 && Z == 0) {
+					o_file1 << ",,,";
+					o_file2 << ",,,";
+				}
 
-				o_file1 << X << "," << Y << "," << Z << ",";
-				o_file2 << x << "," << y << "," << z << ",";
+				/* それ以外のとき */
+				else {
+					double x = X / (X + Y + Z);
+					double y = Y / (X + Y + Z);
+					double z = Z / (X + Y + Z);
+
+					o_file1 << X << "," << Y << "," << Z << ",";
+					o_file2 << x << "," << y << "," << z << ",";
+				}
 			}
 			int apos = j + (3 * (SIMNUM - 1)) * CALCNUM + (3 * SIMNUM * CALCNUM * i);
 
@@ -478,12 +503,21 @@ int main(void) {
 			double Y = fin_result[apos + CALCNUM];
 			double Z = fin_result[apos + (2 * CALCNUM)];
 
-			double x = X / (X + Y + Z);
-			double y = Y / (X + Y + Z);
-			double z = Z / (X + Y + Z);
+			/* XYZ == 0のとき */
+			if (X == 0 && Y == 0 && Z == 0) {
+				o_file1 << ",,";
+				o_file2 << ",,";
+			}
 
-			o_file1 << X << "," << Y << "," << Z;
-			o_file2 << x << "," << y << "," << z;
+			/* それ以外のとき */
+			else {
+				double x = X / (X + Y + Z);
+				double y = Y / (X + Y + Z);
+				double z = Z / (X + Y + Z);
+
+				o_file1 << X << "," << Y << "," << Z;
+				o_file2 << x << "," << y << "," << z;
+			}
 
 			o_file1 << endl << flush;
 			o_file2 << endl << flush;
