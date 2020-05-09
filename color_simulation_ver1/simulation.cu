@@ -24,7 +24,7 @@
 
 #define BLOCKSIZE 371		// 1ブロック当たりのスレッド数
 #define DATANUM 50			// 計算する数
-#define CALCNUM 100		// べき乗する数
+#define CALCNUM 10000		// べき乗する数
 #define SIMNUM 1023			// シミュレーションする回数
 #define LOOPNUM 10			// SIMNUM回のシミュレーション繰り返す回数
 
@@ -182,7 +182,7 @@ int getRemain(void) {
 }
 
 /* 積分計算カーネル */
-template<int BLOCK_SIZE> __global__ void colorSim(double simNum,double *g_data,double *d65,double *obs_x,double *obs_y,double *obs_z,double *result,int remain) {
+template<int BLOCK_SIZE> __global__ void colorSim(double simNum,double *g_data,double *d65,double *obs_x,double *obs_y,double *obs_z,double *result,int remain,int *d_mesh) {
 	/* CUDAアクセス用変数 */
 	int ix = threadIdx.x;
 	int aPos = 0;
@@ -344,6 +344,64 @@ template<int BLOCK_SIZE> __global__ void colorSim(double simNum,double *g_data,d
 
 		/* ブロック同期 */
 		__syncthreads();
+
+		/* メッシュの番号をふる */
+		/* メッシュ用の変数 */
+		double x, y;
+		/* フラグxy */
+		int f_x, f_y;
+		/* メッシュ判定用の変数 */
+		double m_x, m_y;
+
+		/* f_x,f_yの初期化 */
+		f_x = 0;
+		f_y = 0;
+
+		/* x方向 */
+		if (ix <= 36) {
+			/* xyの計算 */
+			x = calc_data[0][0] / (calc_data[0][0] + calc_data[0][1] + calc_data[0][2]);
+			/* メッシュの判定 */
+			m_x = (double)ix * 0.02;
+			if (m_x <= x && (m_x + 0.02) > x) {
+				f_x = 1;
+			}
+		}
+		/* y方向 */
+		if (ix >= 64 && ix <= 106) {
+			/* xyの計算 */
+			y = calc_data[0][1] / (calc_data[0][0] + calc_data[0][1] + calc_data[0][2]);
+			/* メッシュの判定 */
+			m_y = (double)(ix - 64) * 0.02;
+			if (m_y <= y && (m_y + 0.02) > y) {
+				f_y = 1;
+			}
+		}
+
+		/* ブロック同期 */
+		__syncthreads();
+
+		/* メッシュの位置計算 */
+		if (ix <= 36){
+			if (f_x == 1) {
+				aPos = blockIdx.x * CALCNUM + i;
+				d_mesh[aPos] = ix;
+			}
+		}
+
+		/* ブロック同期 */
+		__syncthreads();
+
+		/* メッシュの位置計算 */
+		if (ix >= 64 && ix <= 106) {
+			if (f_y == 1) {
+				aPos = blockIdx.x * CALCNUM + i;
+				d_mesh[aPos] += (ix - 64) * 37;
+			}
+		}
+
+		/* ブロック同期 */
+		__syncthreads();
 	}
 }
 
@@ -360,6 +418,7 @@ int main(void) {
 
 	/* データを入れる１次元配列 */
 	double* d65, * obs_x, * obs_y, * obs_z, * gauss_data, * result, * fin_result;
+	int* mesh_result, * mesh_f_result;
 	d65 = new double[DATA_ROW];
 	obs_x= new double[DATA_ROW];
 	obs_y = new double[DATA_ROW];
@@ -367,9 +426,12 @@ int main(void) {
 	gauss_data = new double[DATA_ROW * 10];
 	result = new double[3 * DATANUM * CALCNUM];
 	fin_result = new double[3 * SIMNUM * CALCNUM * LOOPNUM];
+	mesh_result = new int[DATANUM * CALCNUM];
+	mesh_f_result = new int[SIMNUM * CALCNUM * LOOPNUM];
 
 	/* CUDA用の変数 */
 	double* d_d65, * d_obs_x, * d_obs_y, * d_obs_z, * d_gauss_data, *d_result;
+	int* d_mesh;
 	char* d_sim_order;
 
 	/* GPUメモリ確保 */
@@ -379,6 +441,7 @@ int main(void) {
 	cudaMalloc((void**)&d_obs_z, DATA_ROW * sizeof(double));
 	cudaMalloc((void**)&d_gauss_data, DATA_ROW * 10 * sizeof(double));
 	cudaMalloc((void**)&d_result, 3 * DATANUM * CALCNUM * sizeof(double));
+	cudaMalloc((void**)&d_mesh, DATANUM * CALCNUM * sizeof(int));
 
 	/* ファイル読み込み関数実行 */
 	int f_result = getFileData(d65_data, obs_data);
@@ -403,29 +466,39 @@ int main(void) {
 		cudaMemcpy(d_gauss_data, gauss_data, DATA_ROW * 10 * sizeof(double), cudaMemcpyHostToDevice);
 
 		for(int j = 0; j < (SIMNUM - DATANUM); j += DATANUM) {
-			colorSim<DATA_ROW> << <DATANUM, DATA_ROW >> > ((j+1), d_gauss_data, d_d65, d_obs_x, d_obs_y, d_obs_z, d_result, remain);
+			colorSim<DATA_ROW> << <DATANUM, DATA_ROW >> > ((j + 1), d_gauss_data, d_d65, d_obs_x, d_obs_y, d_obs_z, d_result, remain, d_mesh);
 			cudaDeviceSynchronize();
 
 			/* 結果のコピー */
 			cudaMemcpy(result, d_result, 3 * DATANUM * CALCNUM * sizeof(double), cudaMemcpyDeviceToHost);
+			cudaMemcpy(mesh_result, d_mesh, DATANUM * CALCNUM * sizeof(int), cudaMemcpyDeviceToHost);
 
 			for (int k = 0; k < (3 * DATANUM * CALCNUM); k++) {
 				int aPos = (i * 3 * CALCNUM * SIMNUM) + (3 * CALCNUM * j) + k;
 				fin_result[aPos] = result[k];
+			}
+			for (int k = 0; k < DATANUM * CALCNUM; k++) {
+				int aPos = (i * CALCNUM * SIMNUM) + (CALCNUM * j) + k;
+				mesh_f_result[aPos] = mesh_result[k];
 			}
 		}
 
 		/* ループで余った残りの数をシミュレーション */
 		int r_num = SIMNUM % DATANUM - 1;
 		int sim_num = SIMNUM - r_num - 1;
-		colorSim<DATA_ROW> << <r_num, DATA_ROW >> > ((sim_num + 1), d_gauss_data, d_d65, d_obs_x, d_obs_y, d_obs_z, d_result, remain);
+		colorSim<DATA_ROW> << <r_num, DATA_ROW >> > ((sim_num + 1), d_gauss_data, d_d65, d_obs_x, d_obs_y, d_obs_z, d_result, remain, d_mesh);
 
 		/* 結果のコピー */
 		cudaMemcpy(result, d_result, 3 * DATANUM * CALCNUM * sizeof(double), cudaMemcpyDeviceToHost);
+		cudaMemcpy(mesh_result, d_mesh, DATANUM * CALCNUM * sizeof(int), cudaMemcpyDeviceToHost);
 
 		for (int k = 0; k < (3 * r_num * CALCNUM); k++) { 
 			int aPos = (i * 3 * CALCNUM * SIMNUM) + (3 * CALCNUM * sim_num) + k;
 			fin_result[aPos] = result[k];
+		}
+		for (int k = 0; k < (r_num * CALCNUM); k++) {
+			int aPos = (i * CALCNUM * SIMNUM) + (CALCNUM * sim_num) + k;
+			mesh_f_result[aPos] = mesh_result[k];
 		}
 	}
 
@@ -440,6 +513,9 @@ int main(void) {
 					fin_result[aPos] = 0;
 					fin_result[aPos + CALCNUM] = 0;
 					fin_result[aPos + (CALCNUM * 2)] = 0;
+
+					aPos = (i * SIMNUM * CALCNUM) + (j * CALCNUM) + k;
+					mesh_f_result[aPos] = -1;
 				}
 			}
 		}
@@ -447,6 +523,7 @@ int main(void) {
 
 	/* 出力ディレクトリ */
 	string directory = "C:/Users/KoidaLab-WorkStation/Desktop/isomura_ws/color_simulation_result/sim_1023_10000_10/";
+	//string directory = "C:/Users/KoidaLab-WorkStation/Desktop/isomura_ws/color_simulation_result/sim_test_1023_100_2/";
 
 	/* 出力したファイルの情報を記録するファイル */
 	string f_info = "sim_file_info.txt";
@@ -483,18 +560,21 @@ int main(void) {
 
 				/* XYZ == 0のとき */
 				if (X == 0 && Y == 0 && Z == 0) {
+					apos = j + (k * CALCNUM) + (SIMNUM * CALCNUM * i);
 					o_file1 << ",,,";
-					o_file2 << ",,,";
+					o_file2 << ",,," << mesh_f_result[apos] << ",";
 				}
 
 				/* それ以外のとき */
 				else {
+					apos = j + (k * CALCNUM) + (SIMNUM * CALCNUM * i);
+
 					double x = X / (X + Y + Z);
 					double y = Y / (X + Y + Z);
 					double z = Z / (X + Y + Z);
 
 					o_file1 << X << "," << Y << "," << Z << ",";
-					o_file2 << x << "," << y << "," << z << ",";
+					o_file2 << x << "," << y << "," << z << "," << mesh_f_result[apos] << ",";
 				}
 			}
 			int apos = j + (3 * (SIMNUM - 1)) * CALCNUM + (3 * SIMNUM * CALCNUM * i);
@@ -505,18 +585,21 @@ int main(void) {
 
 			/* XYZ == 0のとき */
 			if (X == 0 && Y == 0 && Z == 0) {
+				apos = j + (SIMNUM - 1) * CALCNUM + (SIMNUM * CALCNUM * i);
 				o_file1 << ",,";
-				o_file2 << ",,";
+				o_file2 << ",,," << mesh_f_result[apos];
 			}
 
 			/* それ以外のとき */
 			else {
+				apos = j + (SIMNUM - 1) * CALCNUM + (SIMNUM * CALCNUM * i);
+
 				double x = X / (X + Y + Z);
 				double y = Y / (X + Y + Z);
 				double z = Z / (X + Y + Z);
 
 				o_file1 << X << "," << Y << "," << Z;
-				o_file2 << x << "," << y << "," << z;
+				o_file2 << x << "," << y << "," << z << mesh_f_result[apos] << ",";
 			}
 
 			o_file1 << endl << flush;
