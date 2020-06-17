@@ -17,16 +17,18 @@
 #define D65_COL 2		// D65の列数
 #define OBS_ROW 441		// 標準観測者の行数
 #define OBS_COL 4		// 標準観測者の列数
-#define DATA_ROW 391	// 計算で使用するデータの行数 (390 - 780 nm)
+#define XYZ_ROW 471		// xyzの行数
+#define XYZ_COL 4		// xyzの列数
+#define DATA_ROW 441	// 計算で使用するデータの行数 (390 - 830 nm)
 #define DATA_MIN 390	// 使用する周波数の最小値
-#define DATA_MAX 780	// 使用する周波数の最大値
+#define DATA_MAX 830	// 使用する周波数の最大値
 #define PI 3.141592		// 円周率
 
-#define BLOCKSIZE 371		// 1ブロック当たりのスレッド数
+#define BLOCKSIZE 441		// 1ブロック当たりのスレッド数
 #define DATANUM 50			// 計算する数
-#define CALCNUM 100		// べき乗する数
+#define CALCNUM 25000		// べき乗する数
 #define SIMNUM 1023			// シミュレーションする回数
-#define LOOPNUM 2			// SIMNUM回のシミュレーション繰り返す回数
+#define LOOPNUM 10			// SIMNUM回のシミュレーション繰り返す回数
 
 using namespace std;
 
@@ -111,9 +113,9 @@ int getFileData(vector<vector<double> >& d65_data, vector<vector<double> >& obs_
 			return -1;
 		}
 	}
-	fclose(fp_d65);
+	fclose(fp_obs);
 
-	/* 標準観測者の読み込み */
+	/* xyzの読み込み */
 	/* ファイルオープン */
 	fp_xyz = fopen("./ciexyz31.csv", "r");
 	/* 正しく開けているかをチェック */
@@ -123,7 +125,7 @@ int getFileData(vector<vector<double> >& d65_data, vector<vector<double> >& obs_
 	}
 
 	/* ファイル読み込み */
-	for (int i = 0; i < OBS_ROW; i++) {
+	for (int i = 0; i < XYZ_ROW; i++) {
 		/* 1行ずつ読み込む */
 		ret = fscanf(fp_xyz, "%lf, %lf, %lf, %lf", &(xyz_data[count][0]), &(xyz_data[count][1]), &(xyz_data[count][2]), &(xyz_data[count][3]));
 		/* 終了判定 */
@@ -141,7 +143,7 @@ int getFileData(vector<vector<double> >& d65_data, vector<vector<double> >& obs_
 			return -1;
 		}
 	}
-	fclose(fp_d65);
+	fclose(fp_xyz);
 
 	return 0;
 }
@@ -159,7 +161,9 @@ void makeGaussShift(vector<vector<double> >& shift_data) {
 	/* 波形は10パターン生成するので10回でループする */
 	for (int i = 0; i < 10; i++) {
 		//mu = (double)DATA_MIN + ((double)DATA_MAX - (double)DATA_MIN) / 10 * i;
-		mu = (double)DATA_MIN + ( (double)rand() / RAND_MAX * ((double)DATA_MAX - (double)DATA_MIN ) );
+		//mu = (double)DATA_MIN + ( (double)rand() / RAND_MAX * ((double)DATA_MAX - (double)DATA_MIN ) );
+		//mu = 300 + ( (double)rand() / RAND_MAX * (700 - 300) );
+		mu = 430 + ( (double)rand() / RAND_MAX * (780 - 430) );
 		sigma = 5 + (95 * (double)rand() / RAND_MAX);
 
 		/* データ数だけ計算する */
@@ -302,7 +306,7 @@ template<int BLOCK_SIZE> __global__ void colorSim(double simNum,double *g_data,d
 		__syncthreads();
 
 		/* ブロックごとにリダクション処理(総和計算) */
-		/* 余りが0出ない場合 */
+		/* 余りが0でない場合 */
 		if (remain != 0) {
 			/* 余った要素のシェアードメモリを加算する */
 			if (ix < remain) {
@@ -313,6 +317,10 @@ template<int BLOCK_SIZE> __global__ void colorSim(double simNum,double *g_data,d
 		}
 
 		/* 総和計算する */
+		if (BLOCK_SIZE >= 512) {if (ix < 256) { calc_data[ix][0] += calc_data[ix + 256][0];
+												calc_data[ix][1] += calc_data[ix + 256][1];
+												calc_data[ix][2] += calc_data[ix + 256][2];
+												}__syncthreads(); }
 		if (BLOCK_SIZE >= 256) { if (ix < 128) { calc_data[ix][0] += calc_data[ix + 128][0];
 												 calc_data[ix][1] += calc_data[ix + 128][1];
 												 calc_data[ix][2] += calc_data[ix + 128][2];
@@ -537,6 +545,13 @@ template<int BLOCK_SIZE> __global__ void lmsSim(double simNum, double* g_data, d
 		}
 
 		/* 総和計算する */
+		if (BLOCK_SIZE >= 512) {
+			if (ix < 256) {
+				calc_data[ix][0] += calc_data[ix + 256][0];
+				calc_data[ix][1] += calc_data[ix + 256][1];
+				calc_data[ix][2] += calc_data[ix + 256][2];
+			}__syncthreads();
+		}
 		if (BLOCK_SIZE >= 256) {
 			if (ix < 128) {
 				calc_data[ix][0] += calc_data[ix + 128][0];
@@ -632,7 +647,7 @@ int main(void) {
 	/*標準観測者のデータを格納する配列 */
 	vector<vector<double> > obs_data(DATA_ROW, vector<double>(OBS_COL, 0));
 	/*標準観測者(cie1931xyz)のデータを格納する配列 */
-	vector<vector<double> > xyz_data(DATA_ROW, vector<double>(OBS_COL, 0));
+	vector<vector<double> > xyz_data(DATA_ROW, vector<double>(XYZ_COL, 0));
 	/*ガウシアンを10個格納する配列 */
 	vector<vector<double> > gauss_shift(DATA_ROW, vector<double>(10, 0));
 
@@ -803,8 +818,8 @@ int main(void) {
 	}
 
 	/* 出力ディレクトリ */
-	//string directory = "C:/Users/KoidaLab-WorkStation/Desktop/isomura_ws/color_simulation_result/sim_1023_15000_10_v2/";
-	string directory = "C:/Users/KoidaLab-WorkStation/Desktop/isomura_ws/color_simulation_result/sim_test_1023_100_2/";
+	string directory = "C:/Users/KoidaLab-WorkStation/Desktop/isomura_ws/color_simulation_result/sim_1023_25000_10_v3/";
+	//string directory = "C:/Users/KoidaLab-WorkStation/Desktop/isomura_ws/color_simulation_result/sim_test_1023_100_2/";
 
 	/* 出力したファイルの情報を記録するファイル */
 	string f_info = "sim_file_info.txt";
